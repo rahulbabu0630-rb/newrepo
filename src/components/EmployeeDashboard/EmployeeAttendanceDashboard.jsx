@@ -77,13 +77,16 @@ const EmployeeAttendanceDashboard = () => {
     calculateSummary(filteredData);
   }, [filteredData]);
 
-  // Fetch today's attendance data
+  // Fetch today's attendance data - Fixed 404 issue
   const fetchAttendanceData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       
       const apiUrl = `${import.meta.env.VITE_API_BASE_URL}/attendance/all-today-status`;
+      
+      // Add debug logging
+      console.log('Fetching from:', apiUrl);
       
       const response = await fetch(apiUrl, {
         credentials: 'include',
@@ -93,31 +96,41 @@ const EmployeeAttendanceDashboard = () => {
         }
       });
       
+      // Handle non-2xx responses
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => null);
+        console.error('API Error:', {
+          status: response.status,
+          url: apiUrl,
+          errorData
+        });
+        throw new Error(errorData?.message || `Server returned ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('API Response:', data); // Debug log
       
       if (!Array.isArray(data)) {
-        throw new Error('Invalid data format received');
+        throw new Error('Invalid data format received - expected array');
       }
       
-      // Process the data to match your component's structure
+      // Enhanced data processing with fallbacks
       const processedData = data.map(item => ({
-        employeeId: item.employeeId,
-        employeeName: item.employeeName,
-        status: item.attendanceStatus.toLowerCase() === 'halfday' ? 'half-day' : item.attendanceStatus.toLowerCase(),
-        date: item.currentDate,
-        department: item.department || 'N/A',
-        position: item.position || 'N/A',
-        lastCheckIn: item.lastCheckIn || null
+        employeeId: item.employeeId || 0,
+        employeeName: item.employeeName || 'Unknown',
+        status: (item.status || item.attendanceStatus || 'absent').toLowerCase() === 'halfday' 
+          ? 'half-day' 
+          : (item.status || item.attendanceStatus || 'absent').toLowerCase(),
+        date: item.currentDate || item.date || new Date().toISOString(),
+        department: item.department || item.role || 'N/A',
+        position: item.position || item.role || 'N/A',
+        lastCheckIn: item.lastCheckIn || item.checkInTime || null
       }));
       
       setAttendanceData(processedData);
     } catch (err) {
       console.error('Error fetching attendance:', err);
-      setError(err.message || 'Failed to fetch attendance data');
+      setError(err.message || 'Failed to fetch attendance data. Please try again.');
       toast.error(`Error: ${err.message}`, { 
         position: "top-center",
         autoClose: 5000
@@ -263,14 +276,22 @@ const EmployeeAttendanceDashboard = () => {
 
   // Format date for display
   const formatDate = (dateString) => {
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString(undefined, options);
+    try {
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      return new Date(dateString).toLocaleDateString(undefined, options);
+    } catch (e) {
+      return new Date().toLocaleDateString();
+    }
   };
 
   // Format time for display
   const formatTime = (timeString) => {
     if (!timeString) return '--';
-    return new Date(timeString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      return new Date(timeString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return '--';
+    }
   };
 
   // Export to PDF
